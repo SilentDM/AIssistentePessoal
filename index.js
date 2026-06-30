@@ -36,14 +36,31 @@ async function perguntarIA(mensagem) {
     try {
         const response = await axios.post('http://localhost:5001/api/v1/generate', {
             "prompt": promptpronto,
-            "max_length": 256,
+            "max_length": 128,
             "temperature": 0.5,
             "top_p": 0.9,
             "rep_pen": 1.1,
-            "stop_sequence": ["User:", "Assistant:", "USER:", "ASSISTANT:", "<|im_end|>"]
+            "stop_sequence": [
+                "User:", 
+                "Assistant:", 
+                "USER:", 
+                "ASSISTANT:", 
+                "<|im_end|>",
+                "<|im_start|>user:",
+                "<|im_start|>assistant:",
+                "<|im_start|>User:",
+                "<|im_start|>Assistant:"
+            ]
         });
 
-        return response.data.results[0].text;
+        
+        let resposta = response.data.results[0].text;
+
+        // remove espaços gigantes
+        resposta = resposta.trim();
+
+        return resposta;
+
     } 
     
     catch (error) {
