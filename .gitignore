@@ -3,8 +3,17 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+client_secret_*
+token.json
+events.txt
+/.ww*
+/node*
+/bot-whatsapp
+
 # C extensions
 *.so
+
+
 
 # Distribution / packaging
 .Python
