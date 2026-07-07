@@ -9,7 +9,8 @@ events.txt
 /.ww*
 /node*
 /bot-whatsapp
-
+*.json
+package*
 # C extensions
 *.so
 

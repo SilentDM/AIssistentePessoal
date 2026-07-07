@@ -1,108 +1,47 @@
-const { exec } = require("child_process");
-const fs = require("fs");
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
+const { exec } = require("child_process");
+
 
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        headless: true, // 👈 MUITO IMPORTANTE
+        headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     }
 });
 
+
+// 2. Inicialização do WhatsApp
 client.on('qr', (qr) => {
     qrcode.generate(qr, { small: true });
-    console.log("Escaneia o QR com o WhatsApp");
+    console.log("Escaneie o QR Code acima com o seu WhatsApp.");
 });
 
 client.on('ready', () => {
-    console.log('WhatsApp conectado!');
+    console.log('tIA está online e conectada!');
 });
 
 client.initialize();
 
-const axios = require('axios');
-
-async function perguntarIA(mensagem) {
-    const eventos = fs.readFileSync("events.txt", "latin1");
-    const promptpronto = ` 
-        Você é uma assistente chamada tIA, simpática, organizada e direta, que ajuda o usuário com base na agenda dele.
-        Eventos do usuário: ${eventos}
-        Responda as perguntas com base nas informações e eventos lidos.
-        <|im_start|>User:${mensagem}<|im_end|>
-        <|im_start|>assistant:<|im_end|>
-    `;
-    try {
-        const response = await axios.post('http://localhost:5001/api/v1/generate', {
-            "prompt": promptpronto,
-            "max_length": 128,
-            "temperature": 0.5,
-            "top_p": 0.9,
-            "rep_pen": 1.1,
-            "stop_sequence": [
-                "User:", 
-                "Assistant:", 
-                "USER:", 
-                "ASSISTANT:", 
-                "<|im_end|>",
-                "<|im_start|>user:",
-                "<|im_start|>assistant:",
-                "<|im_start|>User:",
-                "<|im_start|>Assistant:"
-            ]
-        });
-
-        
-        let resposta = response.data.results[0].text;
-
-        // remove espaços gigantes
-        resposta = resposta.trim();
-
-        return resposta;
-
-    } 
-    
-    catch (error) {
-        console.error("🔥 ERRO NA IA:");
-        console.error(error);
-
-        if (error.response) {
-            console.error("Resposta da API:", error.response.data);
-        }
-
-        return "Erro ao falar com a IA.";
-    }
-    ``
-
-}
-
+// 4. Ouvinte de Mensagens
 client.on('message_create', async (msg) => {
-
+    // Filtro para responder apenas comandos que começam com "tia"
     if (!msg.body.toLowerCase().startsWith("tia")) return;
-    const texto = msg.body.slice(3).trim();
 
-    exec("python main_bot.py", async (error, stdout, stderr) => {
+    const textoUsuario = msg.body.slice(3).trim();
+
+    // Executa o script Python (presumo que ele atualize o events.txt)
+    exec(
+        `python main_bot.py ${JSON.stringify(textoUsuario)}`,
+        (error, stdout, stderr) => {
         if (error) {
             console.error(error);
-            msg.reply("Erro ao rodar o Python.");
+            msg.reply("Ocorreu um erro ao executar o python.");
             return;
         }
-
-    
-    try {
-        const resposta = await perguntarIA(texto);
-        msg.reply(resposta);
-    } catch (err) {
-        console.error("🔥 ERRO COMPLETO:");
-        console.error(err);
-        if (err.response) {
-            console.error("Resposta da API:", err.response.data);
-        }
-        msg.reply("Erro ao gerar resposta.");
-}
-
-
-    
+        // Se o Python rodou com sucesso, responder
+        msg.reply(stdout.trim());
+        
     });
 });
