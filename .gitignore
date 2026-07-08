@@ -13,8 +13,10 @@ events.txt
 package*
 # C extensions
 *.so
-
-
+*.env
+agenda*
+*.ics
+*.bak
 
 # Distribution / packaging
 .Python

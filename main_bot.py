@@ -1,10 +1,11 @@
 from __future__ import print_function
 from  datetime import datetime, timedelta, timezone
 import os.path
+from pathlib import Path
+from icalendar import Calendar
+import pytz
 from google import genai
-import os, requests, json
-import importlib, subprocess, sys
-import dotenv
+import os, requests, json, importlib, subprocess, sys, dotenv
 dotenv.load_dotenv()
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -14,18 +15,53 @@ from dateutil.relativedelta import relativedelta
 from google.genai import Client, types
 from google.genai.types import GenerateContentConfig, GoogleSearch
 import tiktoken
-import google.generativeai as generai
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 sys.stdout.reconfigure(encoding='utf-8',errors="replace")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 client = Client(api_key=GOOGLE_API_KEY)
-generai.configure(api_key=GOOGLE_API_KEY, transport='rest') # transport='rest' ajuda em alguns ambientes
-model = generai.GenerativeModel("gemini-2.5-flash")
 tools = ["google_search"]
-
 SCOPE = ['https://www.googleapis.com/auth/calendar.readonly']
+usuario = os.getenv("FIAP_USER")
+senha = os.getenv("FIAP_PASS")
 
-def pegar_eventos():
+
+
+def getFiapURL():
+    driver = webdriver.Firefox()
+    driver.get("https://on.fiap.com.br/")
+
+    try:
+        driver.get("https://on.fiap.com.br/")
+
+        # Exemplo - ajuste os seletores conforme o HTML atual
+        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.ID, "username-plataforma"))).send_keys(usuario)
+        driver.find_element(By.ID, "password-plataforma").send_keys(senha)
+        driver.find_element(
+            By.CSS_SELECTOR,
+            "loginbtn-plataforma"
+        ).click()
+
+        driver.get(
+            "https://on.fiap.com.br/local/calendarioaluno/"
+        )
+
+        link = WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located(
+                (By.XPATH, "//a[contains(@href,'export.php')]")
+            )
+        )
+
+        url_export = link.get_attribute("href")
+        
+        return url_export
+    finally:
+        driver.quit()
+
+def pegar_eventos_google():
     ##### Vamos criar o arquivo eventos.txt com os eventos do Google Calendar #####
     creds = None
     if os.path.exists('token.json'):
@@ -77,7 +113,94 @@ def pegar_eventos():
         eventos_final=f.read()
     return eventos_final
 
-def gerar_resposta_genai(prompt, eventos):
+def coletarCalendarioFIAP():
+    pasta_destino = Path("E:\Programacao\GitHub\AIssistentePessoal")
+    
+    ICS_PATH = pasta_destino / "icalexport.ics"
+
+    URL_EXPORT = (        "https://on.fiap.com.br/local/calendarioaluno/export.php"        "?username=rm571240"        "&authtoken=befb824594ea126960cca7ea940c7aeea493e835"    )
+    #URL_EXPORT = getFiapURL()
+    
+
+    response = requests.get(URL_EXPORT, timeout=30)
+    response.raise_for_status()
+    ICS_PATH.write_bytes(response.content)
+
+
+    with open(ICS_PATH, "rb") as f:
+        calendario = Calendar.from_ical(f.read())
+
+    tz = pytz.timezone("America/Sao_Paulo")
+
+    agora = datetime.now(tz)
+    limite = agora + timedelta(days=7)
+
+    eventos = []
+    
+    for component in calendario.walk():
+
+        if component.name != "VEVENT":
+            continue
+
+        dtstart = component.get("DTSTART").dt
+
+        if isinstance(dtstart, datetime):
+
+            if dtstart.tzinfo is None:
+                dtstart = tz.localize(dtstart)
+            else:
+                dtstart = dtstart.astimezone(tz)
+
+        else:
+            dtstart = tz.localize(
+                datetime.combine(dtstart, datetime.min.time())
+            )
+
+        if agora <= dtstart <= limite:
+
+            titulo = str(component.get("SUMMARY", ""))
+
+            descricao = str(
+                component.get("DESCRIPTION", "")
+            )
+
+            local = str(
+                component.get("LOCATION", "")
+            )
+
+            eventos.append({
+                "inicio": dtstart,
+                "titulo": titulo,
+                "descricao": descricao,
+                "local": local
+            })
+
+    eventos.sort(key=lambda e: e["inicio"])
+
+    texto = "Agenda FIAP - Próximos 7 dias\n\n"
+
+    for evento in eventos:
+
+        texto += (
+            f"Data: {evento['inicio'].strftime('%d/%m/%Y %H:%M')}\n"
+            f"Título: {evento['titulo']}\n"
+            f"Local: {evento['local']}\n"
+            f"Descrição: {evento['descricao']}\n"
+            "-------------------------\n"
+        )
+
+    arquivo_saida = (
+        pasta_destino / "agenda_fiap_proximos_7_dias.txt"
+    )
+
+    arquivo_saida.write_text(
+        texto,
+        encoding="utf-8"
+    )
+
+    return texto
+
+def gerar_resposta_genai(prompt, eventosg, eventosf):
     agora = datetime.now()
     contexto_tempo = f"""
     DATA Atual: {agora.strftime('%d/%m/%Y')}
@@ -94,7 +217,8 @@ def gerar_resposta_genai(prompt, eventos):
     IMPORTANTE:
     - Considere que a data atual é exatamente a informada acima.
     - Se o usuário perguntar sobre "hoje", use a data acima.
-    - Eventos do usuário: {eventos}
+    - Eventos do usuário na pasta google: {eventosg}\n
+    - Eventos do usuário da faculdade: {eventosf}
     """
 
     corpo_usuario = f"{prompt}\n Por favor, responda de forma carinhosa, mas objetiva."
@@ -126,54 +250,26 @@ def gerar_resposta_genai(prompt, eventos):
         print(f"Mensagem: {e}")
         return "Desculpe, tive um problema ao processar sua resposta."
 
-def gerar_resposta_generai(prompt, eventos):
-    # Implement the logic to generate a response based on the prompt and events
-    agora = datetime.now()
-    contexto_tempo = f"""
-    DATA Atual: {agora.strftime('%d/%m/%Y')}\n
-    HORA Atual: {agora.strftime('%H:%M')}\n
-    Dia da semana: {agora.strftime('%A')}
-    """
-    instrucao_sistema = f"""
-    Você é uma assistente chamada tIA, simpática, organizada e direta.
-    Sua tarefa é ajudar o usuário com respostas claras e quando precisar, se basear na agenda dele.
-    A data e hora de referência são as seguintes:
-    {contexto_tempo}\n
-    IMPORTANTE:
-    - Considere que a data atual é exatamente a informada acima.
-    - Não invente datas.
-    - Não assuma datas diferentes.
-    - Se o usuário perguntar sobre "hoje", use a data acima.
-    - Se perguntar sobre "amanhã", considere o dia seguinte à data acima.
 
-    Eventos do usuário:
-    {eventos}
-    """
-
-    corpo_usuario = f"{prompt}\n Por favor, responda de forma carinhosa, mas objetiva com base nos eventos listados acima."
-    generation_config = {
-        "temperature": 0.5,
-        "top_p": 0.9,
-        "max_output_tokens": 320 # Equivalente ao seu max_length        
-    }
-    model = generai.GenerativeModel(
-        model_name="gemini-2.5-flash",
-        system_instruction=instrucao_sistema,
-        generation_config=generation_config,
-        tools=tools
-    )
+    
+def main(prompt):
     try:
-        response = model.generate_content(corpo_usuario, generation_config=generation_config)
-        return response.output_text
+        eventosG = pegar_eventos_google()
     except Exception as e:
         print("\n--- ERRO DETECTADO ---")
         print(f"Tipo do Erro: {type(e).__name__}")
-        print(f"Mensagem:{e}")
+        print(f"Mensagem: {e}")
+        return "Desculpe, tive um problema ao processar seu calendário google."
     
-def main(prompt):
-    eventos = pegar_eventos()
-    #resposta = gerar_resposta_generai(prompt, eventos)
-    resposta = gerar_resposta_genai(prompt, eventos)
+    try:
+        eventosF = coletarCalendarioFIAP()
+    except Exception as e:
+        print("\n--- ERRO DETECTADO ---")
+        print(f"Tipo do Erro: {type(e).__name__}")
+        print(f"Mensagem: {e}")
+        return "Desculpe, tive um problema ao processar seu calendário da Fiap."
+    
+    resposta = gerar_resposta_genai(prompt, eventosG, eventosF)
     return resposta
     
     
@@ -182,5 +278,7 @@ if __name__ == '__main__':
     prompt = sys.argv[1]
     resposta = main(prompt)
     print(resposta)
+    with open("agenda_fiap_proximos_7_dias.txt", "w", encoding="utf-8") as f:
+        pass
 
     
