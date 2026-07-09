@@ -32,32 +32,20 @@ senha = os.getenv("FIAP_PASS")
 
 def getFiapURL():
     driver = webdriver.Firefox()
-    driver.get("https://on.fiap.com.br/")
-
     try:
         driver.get("https://on.fiap.com.br/")
-
-        # Exemplo - ajuste os seletores conforme o HTML atual
         WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.ID, "username-plataforma"))).send_keys(usuario)
         driver.find_element(By.ID, "password-plataforma").send_keys(senha)
-        driver.find_element(
-            By.CSS_SELECTOR,
-            "loginbtn-plataforma"
-        ).click()
-
-        driver.get(
-            "https://on.fiap.com.br/local/calendarioaluno/"
-        )
-
-        link = WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located(
-                (By.XPATH, "//a[contains(@href,'export.php')]")
-            )
-        )
-
+        driver.find_element(By.CSS_SELECTOR,"loginbtn-plataforma").click()
+        driver.get("https://on.fiap.com.br/local/calendarioaluno/")
+        link = WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, "//a[contains(@href,'export.php')]")))
         url_export = link.get_attribute("href")
-        
         return url_export
+    except Exception as e:
+        print("\n--- ERRO DETECTADO ---")
+        print(f"Tipo do Erro: {type(e).__name__}")
+        print(f"Mensagem: {e}")
+        return "Desculpe, tive um problema ao processar seu calendário da Fiap."
     finally:
         driver.quit()
 
@@ -118,7 +106,11 @@ def coletarCalendarioFIAP():
     
     ICS_PATH = pasta_destino / "icalexport.ics"
 
-    URL_EXPORT = (        "https://on.fiap.com.br/local/calendarioaluno/export.php"        "?username=rm571240"        "&authtoken=befb824594ea126960cca7ea940c7aeea493e835"    )
+    URL_EXPORT = (        
+                "https://on.fiap.com.br/local/calendarioaluno/export.php"
+                "?username=rm571240"
+                "&authtoken=befb824594ea126960cca7ea940c7aeea493e835"
+    )
     #URL_EXPORT = getFiapURL()
     
 
@@ -236,7 +228,7 @@ def gerar_resposta_genai(prompt, eventosg, eventosf):
     try:
         # Nota: Use "gemini-2.0-flash" (a versão 2.5 não existe ainda)
         response = client.models.generate_content(
-            model="gemini-2.5-flash", 
+            model="gemini-1.5-flash", 
             contents=corpo_usuario, 
             config=config
         )

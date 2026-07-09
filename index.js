@@ -22,26 +22,103 @@ client.on('ready', () => {
     console.log('tIA está online e conectada!');
 });
 
+
+
+
 client.initialize();
 
 // 4. Ouvinte de Mensagens
 client.on('message_create', async (msg) => {
-    // Filtro para responder apenas comandos que começam com "tia"
+
+    // Só processa mensagens enviadas por você
+    if (!msg.fromMe) return;
+
+    // =====================
+    // PROCESSAMENTO DE ÁUDIO
+    // =====================
+    if (msg.hasMedia) {
+
+        const media = await msg.downloadMedia();
+
+        if (media && media.mimetype.startsWith("audio")) {
+
+            console.log("Áudio detectado!");
+
+            const fs = require("fs");
+            const nomeArquivo = `audio_${Date.now()}.ogg`;
+
+            fs.writeFileSync(
+                nomeArquivo,
+                Buffer.from(media.data, "base64")
+            );
+
+            exec(
+                `python transcrever.py "${nomeArquivo}"`,
+                (error, stdout, stderr) => {
+
+                    if (error) {
+                        console.error(error);
+                        return;
+                    }
+
+                    const prompt = stdout.trim();
+
+                    // transcrição não continha "tia"
+                    if (!prompt) {
+                        console.log("Palavra-chave não encontrada.");
+                        console.log("prompt")
+                        return;
+                    }
+
+                    console.log("Prompt detectado:", prompt);
+                    const fs = require("fs");
+                        fs.unlink(nomeArquivo, (err) => {
+                        if (err) console.error(err);
+                    });
+
+                    exec(
+                        `python main_bot.py ${JSON.stringify(prompt)}`,
+                        (error, stdout, stderr) => {
+
+                            if (error) {
+                                console.error(error);
+                                return;
+                            }
+
+                            msg.reply(stdout.trim());
+
+                        }
+                    );
+                }
+            );
+
+            return;
+        }
+    }
+
+    // =====================
+    // PROCESSAMENTO DE TEXTO
+    // =====================
+
+    if (!msg.body) return;
+
     if (!msg.body.toLowerCase().startsWith("tia")) return;
 
     const textoUsuario = msg.body.slice(3).trim();
 
-    // Executa o script Python (presumo que ele atualize o events.txt)
     exec(
         `python main_bot.py ${JSON.stringify(textoUsuario)}`,
         (error, stdout, stderr) => {
-        if (error) {
-            console.error(error);
-            msg.reply("Ocorreu um erro ao executar o python.");
-            return;
+
+            if (error) {
+                console.error(error);
+                msg.reply("Ocorreu um erro ao executar o Python.");
+                return;
+            }
+
+            msg.reply(stdout.trim());
         }
-        // Se o Python rodou com sucesso, responder
-        msg.reply(stdout.trim());
-        
-    });
+    );
+    
+
 });
